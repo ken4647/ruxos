@@ -22,10 +22,10 @@ runs:
       PREFIX: ${{ github.workspace }}/qemu_build
     shell: bash
     run: |
-      sudo apt-get update && sudo apt-get install -y ninja-build
+      sudo apt-get update && sudo apt-get install -y libcap-ng-dev libattr1-dev git libglib2.0-dev libfdt-dev libpixman-1-dev zlib1g-dev ninja-build
       wget https://download.qemu.org/$QEMU_PATH.tar.xz && tar -xJf $QEMU_PATH.tar.xz
       cd $QEMU_PATH \
-        && ./configure --prefix=$PREFIX --target-list=x86_64-softmmu,riscv64-softmmu,aarch64-softmmu \
+        && ./configure --prefix=$PREFIX --target-list=x86_64-softmmu,riscv64-softmmu,aarch64-softmmu --enable-virtfs\
         && make -j > /dev/null 2>&1 \
         && make install
   - uses: actions/cache/save@v3
