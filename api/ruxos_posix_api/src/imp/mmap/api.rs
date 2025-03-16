@@ -88,7 +88,6 @@ pub fn sys_mmap(
         } else {
             find_free_region(&vma_map, addr_condition, len)
         };
-
         match try_addr {
             Some(vaddr) => {
                 new.start_addr = vaddr;

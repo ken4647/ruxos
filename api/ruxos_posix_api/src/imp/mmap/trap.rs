@@ -22,7 +22,6 @@ use alloc::sync::Arc;
 use core::{
     cmp::min,
     ops::{Bound, DerefMut},
-    sync::atomic::{fence, Ordering},
 };
 use memory_addr::PAGE_SIZE_4K;
 use page_table::MappingFlags;
@@ -42,7 +41,7 @@ struct TrapHandlerImpl;
 #[crate_interface::impl_interface]
 impl ruxhal::trap::TrapHandler for TrapHandlerImpl {
     fn handle_page_fault(vaddr: usize, cause: PageFaultCause) -> bool {
-        let binding_task = current();
+        let binding_task: ruxtask::CurrentTask = current();
         let mut binding_mem_map = binding_task.mm.vma_map.lock();
         let vma_map = binding_mem_map.deref_mut();
         if let Some(vma) = vma_map.upper_bound(Bound::Included(&vaddr)).value() {
@@ -60,7 +59,7 @@ impl ruxhal::trap::TrapHandler for TrapHandlerImpl {
             let map_flag = get_mflags_from_usize(vma.prot);
 
             trace!(
-                "Page Fault Happening, vaddr:0x{:x?}, casue:{:?}, map_flags:0x{:x?}",
+                "Page Fault Happening, vaddr:0x{:x?}, casue:{:?}, map_flags:{:x?}",
                 vaddr,
                 cause,
                 map_flag
@@ -90,6 +89,7 @@ impl ruxhal::trap::TrapHandler for TrapHandlerImpl {
             let query_result = pte_query(VirtAddr::from(vaddr));
             let mem_item = memory_map.get(&vaddr);
             let is_cow = if let Ok((_, mapping_flags, _)) = query_result {
+                debug!("mapping_flags: {:x?}", mapping_flags);
                 assert!(mem_item.is_some());
                 // Check if:
                 // 1. the page is mapped by another thread.
@@ -216,8 +216,26 @@ impl ruxhal::trap::TrapHandler for TrapHandlerImpl {
                         mapping_file,
                     }),
                 );
-                fence(Ordering::SeqCst);
+
                 // Update the page table entry to map the physical address of the fake virtual address.
+                warn!(
+                    "pte update page for vaddr={:#x?}, paddr={:#x?}, map_flag={:#x?}",
+                    vaddr, paddr, map_flag
+                );
+
+                pub fn read_elr_el1() -> u64 {
+                    let elr_el1: u64;
+                    unsafe {
+                        core::arch::asm!(
+                            "mrs {dst}, ELR_EL1",
+                            dst = out(reg) elr_el1,
+                            options(nostack, preserves_flags)
+                        );
+                    }
+                    elr_el1
+                }
+                warn!("elr_el1: {:#x?}", read_elr_el1());
+
                 match pte_update_page(vaddr.into(), Some(paddr), Some(map_flag)) {
                     Ok(()) => true,
                     Err(_) => false,

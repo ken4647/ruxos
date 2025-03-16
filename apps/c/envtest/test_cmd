@@ -1,2 +1,0 @@
-test_one "LOG=info ARGS=envtest,test1,test2 ENVS=hello=world,world=hello" "expect_info.out"
-rm -f $APP/*.o

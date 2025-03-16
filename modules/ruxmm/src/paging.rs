@@ -36,7 +36,10 @@ pub fn remap_kernel_memory() -> PagingResult {
             )?;
         }
     }
-
+    warn!(
+        "kernel page table root: 0x{:x?}",
+        kernel_page_table.root_paddr()
+    );
     unsafe { ruxhal::arch::write_page_table_root(kernel_page_table.root_paddr()) };
     Ok(())
 }

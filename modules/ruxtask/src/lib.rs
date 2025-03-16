@@ -37,6 +37,7 @@
 #![cfg_attr(not(test), no_std)]
 #![feature(doc_cfg)]
 #![feature(doc_auto_cfg)]
+#![feature(btree_cursors)]
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "multitask")] {
@@ -55,6 +56,7 @@ cfg_if::cfg_if! {
         #[cfg(feature = "irq")]
         /// load average
         pub mod loadavg;
+        mod execv;
         /// specific key-value storage for each task
         #[cfg(not(feature = "musl"))]
         pub mod tsd;

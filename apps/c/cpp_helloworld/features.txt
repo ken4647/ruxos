@@ -1,6 +1,0 @@
-alloc
-paging
-irq
-multitask
-fs
-random-hw

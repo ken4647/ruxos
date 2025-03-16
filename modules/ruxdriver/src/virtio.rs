@@ -196,9 +196,13 @@ unsafe impl VirtIoHal for VirtIoHalImpl {
     #[inline]
     unsafe fn share(buffer: NonNull<[u8]>, _direction: BufferDirection) -> PhysAddr {
         let vaddr = buffer.as_ptr() as *mut u8 as usize;
-        let paddr =
-            crate_interface::call_interface!(AddressTranslate::virt_to_phys, VirtAddr::from(vaddr));
-        paddr.unwrap()
+        let paddr = if vaddr >= 0xffff_0000_0000_0000 {
+            direct_virt_to_phys(vaddr.into()).into()
+        } else {
+            crate_interface::call_interface!(AddressTranslate::virt_to_phys, VirtAddr::from(vaddr))
+                .expect("failed to translate vaddr to paddr for virtio-mmio")
+        };
+        paddr
     }
 
     #[inline]

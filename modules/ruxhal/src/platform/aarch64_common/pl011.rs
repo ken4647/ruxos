@@ -74,6 +74,8 @@ static UART: UartDrv = UartDrv {
 
 /// Writes a byte to the console.
 pub fn putchar(c: u8) {
+    unsafe {
+    UART.inner.force_unlock();}
     let mut uart = UART.inner.lock();
     match c {
         b'\n' => {

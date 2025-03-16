@@ -12,9 +12,10 @@
 //! This module provides data structures for virtual memory area (VMA) management.
 //! TODO: use `Mutex` to replace `SpinNoIrq` to make it more efficient.
 
-use crate::current;
+use core::ops::Bound;
+
 use crate::fs::get_file_like;
-use crate::{fs::File, TaskId};
+use crate::fs::File;
 use alloc::vec::Vec;
 use alloc::{collections::BTreeMap, sync::Arc};
 use axalloc::global_allocator;
@@ -138,8 +139,6 @@ pub struct Vma {
     pub prot: u32,
     /// flags of the mapping
     pub flags: u32,
-    /// process that the mapping belongs to
-    pub from_process: TaskId,
 }
 
 impl MmapStruct {
@@ -150,6 +149,36 @@ impl MmapStruct {
             mem_map: SpinNoIrq::new(BTreeMap::new()),
             swaped_map: SpinNoIrq::new(BTreeMap::new()),
         }
+    }
+
+    // add a new vma with specific range and flags
+    pub fn add_vma(&self, start: usize, end: usize, prot: u32, flags: u32) {
+        let mut vma_map = self.vma_map.lock();
+
+        // check if there is overlap with existing vma
+        if let Some(near_vma_c) = vma_map
+            .lower_bound(core::ops::Bound::Included(&start))
+            .value()
+        {
+            assert!(near_vma_c.start_addr >= end);
+        }
+        if let Some(near_vma_c) = vma_map
+            .upper_bound(core::ops::Bound::Included(&end))
+            .value()
+        {
+            assert!(near_vma_c.end_addr <= start);
+        }
+
+        let vma = Vma {
+            start_addr: start,
+            end_addr: end,
+            // #[cfg(feature = "fs")]
+            file: None,
+            offset: 0,
+            prot,
+            flags,
+        };
+        vma_map.insert(start, vma.clone());
     }
 }
 
@@ -176,7 +205,6 @@ impl Vma {
             offset,
             flags,
             prot,
-            from_process: current().id(),
         }
     }
 
@@ -189,7 +217,61 @@ impl Vma {
             offset: vma.offset,
             prot: vma.prot,
             flags: vma.prot,
-            from_process: current().id(),
         }
+    }
+}
+
+/// Impl for MmapStruct.
+impl MmapStruct {
+    /// search a free region in `VMA_LIST` meet the condition.
+    /// take care of AA-deadlock, this function should not be used after `MEM_MAP` is used.
+    pub(crate) fn find_free_region(
+        &self,
+        addr: Option<usize>,
+        len: usize,
+        range: (usize, usize), // [start, end) of the range to search
+    ) -> Option<usize> {
+        let vma_map = self.vma_map.lock();
+
+        // Search free region in select region if start!=NULL, return error if `MAP_FIXED` flags exist.
+        if let Some(start) = addr {
+            let end_addr =
+                if let Some(lower_vma) = vma_map.upper_bound(Bound::Included(&start)).value() {
+                    lower_vma.end_addr
+                } else {
+                    range.0
+                };
+            let upper = vma_map
+                .lower_bound(Bound::Included(&start))
+                .key()
+                .unwrap_or(&range.0);
+            if upper - start >= len && end_addr <= start {
+                return Some(start);
+            }
+        }
+
+        // Search free region on the top of VMA_LISTS first.
+        if let Some((_, last_vma)) = vma_map
+            .range((Bound::Included(&range.0), Bound::Excluded(&range.1)))
+            .last()
+        {
+            if last_vma.end_addr + len <= range.1 {
+                return Some(last_vma.end_addr);
+            }
+        } else {
+            return Some(range.0);
+        }
+
+        // Search free region among the VMA_LISTS.
+        let mut left = range.0;
+        for (_, vma) in vma_map.range((Bound::Included(&range.0), Bound::Excluded(&range.1))) {
+            let right = vma.start_addr;
+            if right >= left + len {
+                return Some(left);
+            }
+            left = vma.end_addr;
+        }
+
+        None
     }
 }

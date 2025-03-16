@@ -2,14 +2,17 @@ mod auxv;
 mod load_elf;
 mod stack;
 
+use crate::ctypes;
 use alloc::vec;
+use alloc::vec::Vec;
+use auxv::*;
 use core::ffi::c_char;
-use ruxtask::current;
+use ruxconfig::TASK_STACK_SIZE;
+use ruxhal::{mem::PAGE_SIZE_4K, switch_to_el0};
 
 use crate::{
-    config,
     imp::stat::{sys_getgid, sys_getuid},
-    sys_getegid, sys_geteuid, sys_random,
+    sys_getegid, sys_geteuid, sys_mmap, sys_random,
     utils::char_ptr_to_str,
 };
 
@@ -19,7 +22,6 @@ pub fn sys_execve(pathname: *const c_char, argv: usize, envp: usize) -> ! {
         "execve: pathname {:?}, argv {:?}, envp {:?}",
         pathname, argv, envp
     );
-    use auxv::*;
 
     let path = char_ptr_to_str(pathname).unwrap();
     debug!("sys_execve: path is {}", path);
@@ -40,7 +42,44 @@ pub fn sys_execve(pathname: *const c_char, argv: usize, envp: usize) -> ! {
 
     // create stack
     // memory broken, use stack alloc to store args and envs
-    let mut stack = stack::Stack::new();
+    let prot = ctypes::PROT_WRITE | ctypes::PROT_READ | ctypes::PROT_EXEC;
+    let flags = ctypes::MAP_ANONYMOUS | ctypes::MAP_PRIVATE;
+    let stack_addr = sys_mmap(
+        core::ptr::null_mut(),
+        TASK_STACK_SIZE,
+        prot as i32,
+        flags as i32,
+        -1,
+        0,
+    );
+    let mut stack = stack::Stack::from_address(
+        stack_addr as usize + TASK_STACK_SIZE - 8,
+        TASK_STACK_SIZE - 8,
+    );
+
+    // handle envs and args
+    // put args and envs in stack
+    let mut env_vec: Vec<usize> = vec![];
+    let mut arg_vec: Vec<usize> = vec![];
+
+    let platform = stack.push(platform(), 8);
+    let elf_path = stack.push(path.as_bytes(), 8);
+
+    let mut envp = envp as *const usize;
+    unsafe {
+        while *envp != 0 {
+            env_vec.push(*envp);
+            envp = envp.add(1);
+        }
+    }
+
+    let mut argv = argv as *const usize;
+    unsafe {
+        while *argv != 0 {
+            arg_vec.push(*argv);
+            argv = argv.add(1);
+        }
+    }
 
     // non 8B info
     stack.push(&[0u8; 32], 16);
@@ -59,11 +98,11 @@ pub fn sys_execve(pathname: *const c_char, argv: usize, envp: usize) -> ! {
         AT_BASE,
         at_base,
         AT_PAGESZ,
-        config::PAGE_SIZE_4K,
+        PAGE_SIZE_4K,
         AT_HWCAP,
         0,
         AT_PLATFORM,
-        platform(),
+        platform,
         AT_CLKTCK,
         100,
         AT_FLAGS,
@@ -71,17 +110,17 @@ pub fn sys_execve(pathname: *const c_char, argv: usize, envp: usize) -> ! {
         AT_ENTRY,
         prog.entry,
         AT_UID,
-        sys_getuid() as usize,
+        sys_getuid() as usize, // TODO: get uid
         AT_EUID,
-        sys_geteuid() as usize,
+        sys_geteuid() as usize, // TODO: get euid
         AT_EGID,
-        sys_getegid() as usize,
+        sys_getegid() as usize, // TODO: get egid
         AT_GID,
-        sys_getgid() as usize,
+        sys_getgid() as usize, // TODO: get gid
         AT_SECURE,
         0,
         AT_EXECFN,
-        pathname as usize,
+        elf_path,
         AT_RANDOM,
         p_rand,
         AT_SYSINFO_EHDR,
@@ -92,77 +131,25 @@ pub fn sys_execve(pathname: *const c_char, argv: usize, envp: usize) -> ! {
         0,
     ];
 
-    // handle envs and args
-    let mut env_vec = vec![];
-    let mut arg_vec = vec![];
-
-    let mut envp = envp as *const usize;
-    unsafe {
-        while *envp != 0 {
-            env_vec.push(*envp);
-            envp = envp.add(1);
-        }
-        env_vec.push(0);
-    }
-
-    let mut argv = argv as *const usize;
-    unsafe {
-        while *argv != 0 {
-            arg_vec.push(*argv);
-            argv = argv.add(1);
-        }
-        arg_vec.push(0);
-    }
-
     // push
-    stack.push(&auxv, 16);
+    stack.push(&auxv, 8);
+    stack.push(&[0u8; 1], 8);
     stack.push(&env_vec, 8);
+    stack.push(&[0u8; 1], 8);
     stack.push(&arg_vec, 8);
-    let sp = stack.push(&[arg_vec.len() - 1], 8); // argc
+    let sp = stack.push(&[arg_vec.len()], 8); // argc
 
     // try run
-    debug!(
+    warn!(
         "sys_execve: sp is 0x{sp:x}, run at 0x{entry:x}, then jump to 0x{:x} ",
         prog.entry
     );
 
-    // TODO: may lead to memory leaky, release stack after the change of stack
-    current().set_stack_top(stack.stack_top() - stack.stack_size(), stack.stack_size());
-    warn!(
-        "sys_execve: current_id_name {:?}, stack top 0x{:x}, size 0x{:x}",
-        current().id_name(),
-        current().stack_top(),
-        stack.stack_size()
-    );
-
-    set_sp_and_jmp(sp, entry);
+    // set_sp_and_jmp(sp, entry);
+    unsafe { switch_to_el0(entry as u64, sp as u64) }
 }
 
-fn set_sp_and_jmp(sp: usize, entry: usize) -> ! {
-    #[cfg(target_arch = "aarch64")]
-    unsafe {
-        core::arch::asm!("
-         mov sp, {}
-         br {}
-     ",
-        in(reg)sp,
-        in(reg)entry,
-        );
-    }
-    #[cfg(target_arch = "x86_64")]
-    unsafe {
-        core::arch::asm!("
-         mov rsp, {}
-         jmp {}
-     ",
-        in(reg)sp,
-        in(reg)entry,
-        );
-    }
-    unreachable!("sys_execve: unknown arch, sp 0x{sp:x}, entry 0x{entry:x}");
-}
-
-fn platform() -> usize {
+fn platform<'a>() -> &'a [u8] {
     #[cfg(target_arch = "aarch64")]
     const PLATFORM_STRING: &[u8] = b"aarch64\0";
     #[cfg(target_arch = "x86_64")]
@@ -170,5 +157,5 @@ fn platform() -> usize {
     #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
     const PLATFORM_STRING: &[u8] = b"unknown\0";
 
-    PLATFORM_STRING.as_ptr() as usize
+    PLATFORM_STRING
 }

@@ -52,7 +52,7 @@ impl Debug for TrapFrame {
 
 /// FP & SIMD registers.
 #[repr(C, align(16))]
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct FpState {
     /// 128-bit SIMD & FP registers (V0..V31)
     pub regs: [u128; 32],
@@ -75,10 +75,10 @@ pub struct FpState {
 /// and the next task restores its context from memory to CPU.
 #[allow(missing_docs)]
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TaskContext {
-    pub sp: u64,
-    pub tpidr_el0: u64,
+    pub sp_el1: u64,    // sp_el1
+    pub tpidr_el0: u64, // save current task id
     pub r19: u64,
     pub r20: u64,
     pub r21: u64,
@@ -90,7 +90,9 @@ pub struct TaskContext {
     pub r27: u64,
     pub r28: u64,
     pub r29: u64,
-    pub lr: u64, // r30
+    pub lr: u64,      // r30
+    pub elr_el1: u64, // elr_el1 // pub spsr_el1: u64, // spsr_el1
+    pub sp_el0: u64,  // sp_el0
     #[cfg(feature = "fp_simd")]
     pub fp_state: FpState,
 }
@@ -103,8 +105,15 @@ impl TaskContext {
 
     /// Initializes the context for a new task, with the given entry point and
     /// kernel stack.
-    pub fn init(&mut self, entry: usize, kstack_top: VirtAddr, tls_area: VirtAddr) {
-        self.sp = kstack_top.as_usize() as u64;
+    pub fn init(
+        &mut self,
+        entry: usize,
+        kstack_top: VirtAddr,
+        user_stack_ptr: VirtAddr,
+        tls_area: VirtAddr,
+    ) {
+        self.sp_el1 = kstack_top.as_usize() as u64;
+        self.sp_el0 = user_stack_ptr.as_usize() as u64;
         self.lr = entry as u64;
         self.tpidr_el0 = tls_area.as_usize() as u64;
     }
@@ -116,7 +125,7 @@ impl TaskContext {
                 "save_current_content: src={:#x}, dst={:#x}, size={:#x}",
                 src as usize, dst as usize, size
             );
-            save_stack(src, dst, size);
+            // save_stack(src, dst, size);
             #[cfg(feature = "fp_simd")]
             save_fpstate_context(&mut self.fp_state);
             // will ret from here
@@ -133,37 +142,13 @@ impl TaskContext {
         unsafe {
             #[cfg(feature = "fp_simd")]
             fpstate_switch(&mut self.fp_state, &next_ctx.fp_state);
+
+            debug!("new page table addr: {:#x}", page_table_addr.as_usize());
+            debug!("stack ptr for el1: {:#x}", next_ctx.sp_el1);
             // switch to the next process's page table, stack would be unavailable before context switch finished
             context_switch(self, next_ctx, page_table_addr.as_usize() as u64);
         }
     }
-}
-
-#[naked]
-#[allow(named_asm_labels)]
-// TODO: consider using SIMD instructions to copy the stack in parallel.
-unsafe extern "C" fn save_stack(src: *const u8, dst: *mut u8, size: usize) {
-    // x0: src, x1: dst, x2: size
-    asm!(
-        "
-        mov x9, 0x0 // clear x9
-
-        _copy_stack_start:
-        cmp     x9, x2
-        b.eq      _copy_stack_end
-        ldr     x12, [x0]
-        str     x12, [x1]
-        add     x0, x0, 8
-        add     x1, x1, 8
-        add     x9, x9, 8
-        b        _copy_stack_start
-        _copy_stack_end:
-
-        dsb  sy
-        isb
-        ret",
-        options(noreturn),
-    )
 }
 
 #[naked]
@@ -238,14 +223,17 @@ unsafe extern "C" fn context_switch(
         mov     x19, sp
         mrs     x20, tpidr_el0
         stp     x19, x20, [x0]
+        mrs     x19, elr_el1
+        mrs     x20, sp_el0
+        stp     x19, x20, [x0, 14 * 8]
 
         // switch to next task's page table
-        mrs     x19, TTBR1_EL1
+        mrs     x19, TTBR0_EL1
         cmp     x19, x2
         b.eq     _switch_page_table_done
         _switch_page_table:
         mov     x19, x2
-        msr     TTBR1_EL1, x19
+        msr     TTBR0_EL1, x19
         tlbi vmalle1
         dsb sy
         isb
@@ -253,6 +241,9 @@ unsafe extern "C" fn context_switch(
         _switch_page_table_done:
 
         // restore new context
+        ldp     x19, x20, [x1, 14 * 8]
+        msr     elr_el1, x19
+        msr     sp_el0, x20
         ldp     x19, x20, [x1]
         mov     sp, x19
         msr     tpidr_el0, x20

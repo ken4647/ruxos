@@ -15,6 +15,10 @@ impl Stack {
         }
     }
 
+    pub fn sp(&self) -> usize {
+        self.ptr as usize
+    }
+
     /// push data to stack and return the addr of sp
     pub fn push<T: core::fmt::LowerHex>(&mut self, data: &[T], align: usize) -> usize {
         // move sp to right place

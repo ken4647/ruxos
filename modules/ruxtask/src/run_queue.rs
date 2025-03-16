@@ -7,8 +7,6 @@
  *   See the Mulan PSL v2 for more details.
  */
 
-use log::error;
-
 use crate::fs::get_file_like;
 use crate::fs::RUX_FILE_LIMIT;
 use alloc::collections::VecDeque;

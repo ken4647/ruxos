@@ -231,7 +231,7 @@ pub fn sys_exit_group(status: c_int) -> ! {
     debug!("sys_exit_group <= status: {:#?}", status);
 
     // TODO: exit all threads, send signal to all threads
-    
+
     //  drop all file opened by current task
     current().fs.lock().as_mut().unwrap().close_all_files();
 
@@ -392,7 +392,7 @@ pub unsafe fn sys_clone(
 #[cfg(feature = "musl")]
 pub fn sys_set_tid_address(tid: usize) -> c_int {
     syscall_body!(sys_set_tid_address, {
-        debug!("set_tid_address <= addr: {:#x}", tid);
+        warn!("set_tid_address <= addr: {:#x}", tid);
         let id = ruxtask::current().id().as_u64() as c_int;
         ruxtask::current().as_task_ref().set_child_tid(tid);
         Ok(id)

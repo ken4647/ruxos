@@ -16,6 +16,7 @@
     stp     x26, x27, [sp, 26 * 8]
     stp     x28, x29, [sp, 28 * 8]
 
+    mrs     x9, sp_el0
     mrs     x10, elr_el1
     mrs     x11, spsr_el1
     stp     x30, x9, [sp, 30 * 8]
@@ -27,6 +28,7 @@
     ldp     x30, x9, [sp, 30 * 8]
     msr     elr_el1, x10
     msr     spsr_el1, x11
+    msr     sp_el0, x9
 
     ldp     x28, x29, [sp, 28 * 8]
     ldp     x26, x27, [sp, 26 * 8]
@@ -99,6 +101,8 @@ restore_neno_registers:
     SAVE_REGS
     mov     x0, sp
     bl      save_neno_registers
+    mov     x1, sp
+    msr     sp_el0, x1
     bl      handle_sync_exception
     bl      restore_neno_registers
     b       .Lexception_return

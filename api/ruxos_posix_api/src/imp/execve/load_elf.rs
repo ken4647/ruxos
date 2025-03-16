@@ -31,8 +31,8 @@ impl ElfProg {
 
         // read file
         let mut file = vec![0u8; filesize];
-        sys_read(fd, file.as_mut_ptr() as *mut _, filesize);
-        debug!("sys_execve: read file size 0x{filesize:x}");
+        let readsize = sys_read(fd, file.as_mut_ptr() as *mut _, filesize);
+        warn!("sys_execve: read file size 0x{filesize:x}, readsize 0x{readsize:x}");
         sys_close(fd);
 
         // parse elf
@@ -40,7 +40,7 @@ impl ElfProg {
             .expect("parse ELF failed");
 
         // get program's LOAD mem size
-        let mut min_addr = 0;
+        let mut min_addr = u64::MAX;
         let mut max_addr = 0;
         let segs = file.segments().unwrap();
         for seg in segs {

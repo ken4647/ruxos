@@ -35,6 +35,7 @@ test = ["percpu?/sp-naive"]
 cfg-if = "1.0"
 log = "0.4"
 axerrno = { path = "../../crates/axerrno" }
+elf = { version = "0.7", default-features = false }
 
 ruxhal = { path = "../ruxhal" }
 ruxfs = { path = "../ruxfs" }

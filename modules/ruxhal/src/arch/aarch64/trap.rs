@@ -78,16 +78,8 @@ fn handle_sync_exception(tf: &mut TrapFrame) {
             disable_irqs();
         }
         Some(ESR_EL1::EC::Value::DataAbortLowerEL)
-        | Some(ESR_EL1::EC::Value::InstrAbortLowerEL) => {
-            let iss = esr.read(ESR_EL1::ISS);
-            warn!(
-                "EL0 Page Fault @ {:#x}, FAR={:#x}, ISS={:#x}",
-                tf.elr,
-                FAR_EL1.get(),
-                iss
-            );
-        }
-        Some(ESR_EL1::EC::Value::DataAbortCurrentEL)
+        | Some(ESR_EL1::EC::Value::InstrAbortLowerEL)
+        | Some(ESR_EL1::EC::Value::DataAbortCurrentEL)
         | Some(ESR_EL1::EC::Value::InstrAbortCurrentEL) => {
             let iss = esr.read(ESR_EL1::ISS);
             #[cfg(feature = "paging")]
@@ -96,18 +88,26 @@ fn handle_sync_exception(tf: &mut TrapFrame) {
 
                 // this cause is coded like linux.
                 let cause: PageFaultCause = match esr.read_as_enum(ESR_EL1::EC) {
-                    Some(ESR_EL1::EC::Value::DataAbortCurrentEL) if iss & 0x40 != 0 => {
-                        PageFaultCause::WRITE // = store
+                    Some(ESR_EL1::EC::Value::DataAbortCurrentEL)
+                    | Some(ESR_EL1::EC::Value::DataAbortLowerEL) => {
+                        if iss & 0x40 != 0 {
+                            PageFaultCause::WRITE // = store
+                        } else {
+                            PageFaultCause::READ //  = load
+                        }
                     }
-                    Some(ESR_EL1::EC::Value::DataAbortCurrentEL) if iss & 0x40 == 0 => {
-                        PageFaultCause::READ //  = load
-                    }
-                    _ => {
+                    Some(ESR_EL1::EC::Value::InstrAbortLowerEL) => {
                         PageFaultCause::INSTRUCTION // = instruction fetch
                     }
+                    Some(ESR_EL1::EC::Value::InstrAbortCurrentEL) => {
+                        PageFaultCause::INSTRUCTION // = instruction fetch
+                    }
+                    _ => {
+                        panic!("unknown page fault cause");
+                    }
                 };
-                let is_mapped = crate::trap::handle_page_fault(vaddr, cause);
 
+                let is_mapped = crate::trap::handle_page_fault(vaddr, cause);
                 if is_mapped {
                     return;
                 }

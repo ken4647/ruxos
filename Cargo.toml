@@ -60,10 +60,6 @@ members = [
     "ulib/axstd",
     "ulib/ruxlibc",
     "ulib/ruxmusl",
-
-    "apps/display/basic_painting",
-    "apps/display/draw_map",
-    "apps/fs/shell",
 ]
 
 [profile.release]

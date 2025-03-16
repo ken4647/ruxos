@@ -279,40 +279,14 @@ pub extern "C" fn rust_main(cpu_id: usize, dtb: usize) -> ! {
         core::hint::spin_loop();
     }
 
-    // environ variables and Command line parameters initialization
-    #[cfg(feature = "alloc")]
-    unsafe {
-        let mut argc: c_int = 0;
-        init_cmdline(&mut argc);
-        #[cfg(not(feature = "musl"))]
-        main(argc, argv);
-        #[cfg(feature = "musl")]
-        __libc_start_main(main, argc, argv, init_dummy, fini_dummy, ldso_dummy);
-    }
+    let init_proc = TaskInner::create_user_process("bin/hello", &[], &[]);
+    put_task(init_proc);
+    error!("init_proc: prepare to run init process");
 
-    #[cfg(not(feature = "alloc"))]
-    unsafe {
-        #[cfg(not(feature = "musl"))]
-        main(0, core::ptr::null_mut());
+    exit(0);
 
-        #[cfg(feature = "musl")]
-        __libc_start_main(
-            main,
-            0,
-            core::ptr::null_mut(),
-            init_dummy,
-            fini_dummy,
-            ldso_dummy,
-        )
-    };
-
-    #[cfg(feature = "multitask")]
-    ruxtask::exit(0);
-    #[cfg(not(feature = "multitask"))]
-    {
-        debug!("main task exited: exit_code={}", 0);
-        ruxhal::misc::terminate();
-    }
+    // unreachable
+    unreachable!("unreachable code after init");
 }
 
 #[cfg(feature = "alloc")]
@@ -395,6 +369,7 @@ fn init_allocator() {
 
 #[cfg(feature = "paging")]
 use ruxmm::paging::remap_kernel_memory;
+use ruxtask::{exit, put_task, TaskInner};
 
 #[cfg(feature = "irq")]
 fn init_interrupt() {

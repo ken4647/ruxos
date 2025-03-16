@@ -135,7 +135,7 @@ impl TlsArea {
             // initialize TCB
             init_tcb(area_base);
         }
-
+        error!("TLS area: {:p}, size: {:#x}", area_base, tls_area_size());
         Self {
             base: NonNull::new(area_base).unwrap(),
             layout,

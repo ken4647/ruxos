@@ -24,8 +24,10 @@ use ruxmm::paging::{alloc_page_preload, do_pte_map, pte_query, pte_swap_preload,
 use ruxtask::vma::{FileInfo, PageInfo, SwapInfo, BITMAP_FREE, SWAPED_MAP, SWAP_FILE};
 use ruxtask::{current, vma::Vma};
 
-pub(crate) const VMA_START: usize = ruxconfig::MMAP_START_VADDR;
-pub(crate) const VMA_END: usize = ruxconfig::MMAP_END_VADDR;
+pub(crate) const VMA_START: usize = 0x0000_5000_0000_0000;
+pub(crate) const VMA_END: usize = 0x0000_7000_0000_0000;
+// pub(crate) const VMA_START: usize = ruxconfig::MMAP_START_VADDR;
+// pub(crate) const VMA_END: usize = ruxconfig::MMAP_END_VADDR;
 
 // use `used_fs` instead of `#[cfg(feature = "fs")]{}` to cancel the scope of code.
 #[cfg(feature = "fs")]
@@ -78,7 +80,7 @@ pub(crate) fn get_mflags_from_usize(prot: u32) -> MappingFlags {
     }
 
     // always readable at least
-    mmap_prot | MappingFlags::READ
+    mmap_prot | MappingFlags::READ | MappingFlags::USER
 }
 
 /// lock overlap region between two intervals [start1, end1) and [start2,end2)。
@@ -124,20 +126,22 @@ pub(crate) fn find_free_region(
     }
 
     // Search free region on the top of VMA_LISTS first.
-    if let Some((_, last_vma)) = vma_map.last_key_value() {
-        if VMA_END - last_vma.end_addr >= len {
+    if let Some((_, last_vma)) = vma_map
+        .range((Bound::Included(&VMA_START), Bound::Included(&VMA_END)))
+        .last()
+    {
+        if last_vma.end_addr + len <= VMA_END {
             return Some(last_vma.end_addr);
         }
-    } else if VMA_END >= VMA_START + len {
+    } else {
         return Some(VMA_START);
     }
 
     // Search free region among the VMA_LISTS.
     let mut left = VMA_START;
-    for vma in vma_map.values() {
+    for (_, vma) in vma_map.range((Bound::Included(&VMA_START), Bound::Included(&VMA_END))) {
         let right = vma.start_addr;
-        let free_size = right - left;
-        if free_size >= len {
+        if right >= left + len {
             return Some(left);
         }
         left = vma.end_addr;
