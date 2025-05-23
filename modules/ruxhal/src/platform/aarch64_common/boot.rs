@@ -110,13 +110,13 @@ unsafe fn init_boot_page_table() {
 }
 
 /// The earliest entry point for the primary CPU.
-#[naked]
+#[unsafe(naked)]
 #[no_mangle]
 #[link_section = ".text.boot"]
 unsafe extern "C" fn _start() -> ! {
     // PC = 0x8_0000
     // X0 = dtb
-    core::arch::asm!("
+    core::arch::naked_asm!("
         mrs     x19, mpidr_el1
         and     x19, x19, #0xffffff     // get current CPU id
         mov     x20, x0                 // save DTB pointer
@@ -126,9 +126,9 @@ unsafe extern "C" fn _start() -> ! {
         mov     sp, x8
 
         bl      {switch_to_el1}         // switch to EL1
+        bl      {enable_fp}             // enable fp/neon
         bl      {init_boot_page_table}
         bl      {init_mmu}              // setup MMU
-        bl      {enable_fp}             // enable fp/neon
 
         mov     x8, {phys_virt_offset}  // set SP to the high address
         add     sp, sp, x8
@@ -146,13 +146,13 @@ unsafe extern "C" fn _start() -> ! {
         boot_stack_size = const TASK_STACK_SIZE,
         phys_virt_offset = const ruxconfig::PHYS_VIRT_OFFSET,
         entry = sym crate::platform::rust_entry,
-        options(noreturn),
+        
     )
 }
 
 /// The earliest entry point for the secondary CPUs.
 #[cfg(feature = "smp")]
-#[naked]
+#[unsafe(naked)]
 #[no_mangle]
 #[link_section = ".text.boot"]
 unsafe extern "C" fn _start_secondary() -> ! {
@@ -161,9 +161,9 @@ unsafe extern "C" fn _start_secondary() -> ! {
         and     x19, x19, #0xffffff     // get current CPU id
 
         mov     sp, x0
+        bl      {enable_fp}
         bl      {switch_to_el1}
         bl      {init_mmu}
-        bl      {enable_fp}
 
         mov     x8, {phys_virt_offset}  // set SP to the high address
         add     sp, sp, x8
@@ -177,6 +177,6 @@ unsafe extern "C" fn _start_secondary() -> ! {
         enable_fp = sym enable_fp,
         phys_virt_offset = const ruxconfig::PHYS_VIRT_OFFSET,
         entry = sym crate::platform::rust_entry_secondary,
-        options(noreturn),
+        
     )
 }

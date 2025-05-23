@@ -85,3 +85,8 @@ dtb = { path = "../../crates/dtb" }
 
 [build-dependencies]
 ruxconfig = { path = "../ruxconfig" }
+
+[target.aarch64-unknown-none]
+rustflags = [
+    "-Ctarget-feature=+a72,+v8a,+strict-align,-fp-armv8,-neon",
+]
