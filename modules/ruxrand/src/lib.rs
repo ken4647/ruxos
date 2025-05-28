@@ -25,6 +25,7 @@
 #![feature(doc_cfg)]
 #![feature(doc_auto_cfg)]
 
+#![allow(dead_code)]
 /// Defines the per-CPU RNG.
 pub mod rng;
 

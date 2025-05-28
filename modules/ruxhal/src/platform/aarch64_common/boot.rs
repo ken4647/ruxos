@@ -86,7 +86,7 @@ unsafe fn init_mmu() {
     barrier::isb(barrier::SY);
 
     // Set both TTBR0 and TTBR1
-    let root_paddr = PhysAddr::from(BOOT_PT_L0.as_ptr() as usize).as_usize() as _;
+    let root_paddr = PhysAddr::from(&raw const BOOT_PT_L0 as usize).as_usize() as _;
     TTBR0_EL1.set(root_paddr);
     TTBR1_EL1.set(root_paddr);
 
@@ -106,7 +106,7 @@ unsafe fn enable_fp() {
 }
 
 unsafe fn init_boot_page_table() {
-    crate::platform::mem::init_boot_page_table(&mut BOOT_PT_L0, &mut BOOT_PT_L1);
+    crate::platform::mem::init_boot_page_table(&raw mut BOOT_PT_L0, &raw mut BOOT_PT_L1);
 }
 
 /// The earliest entry point for the primary CPU.
